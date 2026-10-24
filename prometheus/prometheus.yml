@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # Smoke-test target only. Add Kafka/Flink/Connect/Airflow exporters after enabling their metrics.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["prometheus:9090"]

@@ -1,0 +1,8 @@
+version: 2
+sources:
+  - name: raw
+    database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
+    schema: "{{ env_var('SNOWFLAKE_RAW_SCHEMA', 'RAW') }}"
+    tables:
+      - name: meter_readings
+        description: "Loaded source table. Confirm its actual columns before running dbt."

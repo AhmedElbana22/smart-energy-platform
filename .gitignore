@@ -1,0 +1,31 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local data, logs, and generated outputs
+/data/raw/*
+!/data/raw/.gitkeep
+/data/processed/*
+!/data/processed/.gitkeep
+/logs/
+/warehouse/
+airflow/logs/
+
+# dbt artifacts
+/dbt/target/
+/dbt/logs/
+/dbt/dbt_packages/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

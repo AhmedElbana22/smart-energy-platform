@@ -1,0 +1,1 @@
+Put the baseline training, evaluation, and scoring code here. Keep this profile optional because model training can compete with Spark and other services for RAM. Add PyTorch/Transformers only after confirming what the feature-generation model actually requires; avoid pulling a large deep-learning image onto every teammate's device unnecessarily.

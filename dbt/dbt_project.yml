@@ -1,0 +1,13 @@
+name: smart_energy
+version: '1.0.0'
+config-version: 2
+profile: smart_energy
+model-paths: ["models"]
+test-paths: ["tests"]
+clean-targets: ["target", "dbt_packages"]
+models:
+  smart_energy:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table
