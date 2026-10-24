@@ -68,7 +68,10 @@ services:
 
   # Branch A: Flink runs continuously; a Kafka consumer job must be submitted separately.
   flink-jobmanager:
-    image: flink:1.20.2-scala_2.12-java17
+    image: smart-energy-flink:1.20.2
+    build:
+      context: ./flink
+      dockerfile: Dockerfile
     profiles: ["streaming"]
     command: jobmanager
     hostname: flink-jobmanager
@@ -80,11 +83,16 @@ services:
         jobmanager.memory.process.size: 1024m
         parallelism.default: 1
     mem_limit: 1400m
+    volumes:
+      - ./flink/sql:/opt/flink/sql:ro
     cpus: 1.0
     restart: unless-stopped
 
   flink-taskmanager:
-    image: flink:1.20.2-scala_2.12-java17
+    image: smart-energy-flink:1.20.2
+    build:
+      context: ./flink
+      dockerfile: Dockerfile
     profiles: ["streaming"]
     command: taskmanager
     hostname: flink-taskmanager
