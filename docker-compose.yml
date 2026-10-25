@@ -37,7 +37,10 @@ services:
   # Kafka Connect worker is included, but the HDFS sink plugin is intentionally
   # not bundled until the team confirms the connector version/license and Hadoop compatibility.
   kafka-connect:
-    image: confluentinc/cp-kafka-connect:7.7.12
+    build:
+      context: ./connect
+      dockerfile: Dockerfile
+    image: smart-energy-kafka-connect:7.7.12-hdfs3
     profiles: ["connect"]
     hostname: kafka-connect
     depends_on:

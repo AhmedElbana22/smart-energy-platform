@@ -1,0 +1,29 @@
+{
+  "name": "meter-readings-hdfs-sink",
+  "config": {
+    "connector.class": "io.confluent.connect.hdfs3.Hdfs3SinkConnector",
+    "tasks.max": "1",
+    "topics": "meter-readings",
+
+    "hdfs.url": "hdfs://namenode:8020",
+    "topics.dir": "/smart-energy/bronze",
+    "logs.dir": "/smart-energy/bronze/_connect-logs",
+
+    "format.class": "io.confluent.connect.hdfs3.json.JsonFormat",
+    "flush.size": "3",
+    "rotate.interval.ms": "10000",
+
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+
+    "hive.integration": "false",
+    "schema.compatibility": "NONE",
+
+    "confluent.topic.bootstrap.servers": "kafka:29092",
+    "confluent.topic.replication.factor": "1",
+
+    "errors.retry.timeout": "-1",
+    "errors.retry.delay.max.ms": "10000"
+  }
+}
