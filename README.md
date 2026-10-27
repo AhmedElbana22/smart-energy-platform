@@ -466,7 +466,7 @@ Kafka, Flink, Kafka Connect, Airflow, and other components.
 ### 1. Clone the repository
 
 ``` bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
+git clone https://github.com/AhmedElbana22/smart-energy-platform.git
 cd smart-energy-platform
 ```
 
