@@ -1,0 +1,103 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: One row per calendar date observed in the source date range.
+    columns:
+      - name: date_key
+        tests: [not_null, unique]
+      - name: full_date
+        tests: [not_null, unique]
+
+  - name: dim_time
+    description: The 96 quarter-hour slots in a day, keyed 0 through 95.
+    columns:
+      - name: time_key
+        tests: [not_null, unique]
+      - name: time_label
+        tests: [not_null, unique]
+
+  - name: dim_meter
+    description: One row per meter/source identity.
+    columns:
+      - name: meter_key
+        tests: [not_null, unique]
+      - name: meter_id
+        tests: [not_null]
+
+  - name: dim_grid_asset
+    description: One row per transformer/feeder/substation combination.
+    columns:
+      - name: grid_asset_key
+        tests: [not_null, unique]
+
+  - name: fact_meter_readings
+    description: Detailed fact, one row per meter/source/timestamp identity.
+    columns:
+      - name: reading_fact_key
+        tests: [not_null, unique]
+      - name: date_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: time_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_time')
+              field: time_key
+      - name: meter_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_meter')
+              field: meter_key
+      - name: grid_asset_key
+        tests:
+          - relationships:
+              to: ref('dim_grid_asset')
+              field: grid_asset_key
+
+  - name: fact_transformer_daily
+    description: One row per transformer/grid asset per calendar day.
+    columns:
+      - name: transformer_daily_key
+        tests: [not_null, unique]
+      - name: date_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: grid_asset_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_grid_asset')
+              field: grid_asset_key
+
+  - name: fact_anomaly_events
+    description: Ground-truth anomaly-labeled readings. This is not the Flink grid-alerts output.
+    columns:
+      - name: anomaly_event_key
+        tests: [not_null, unique]
+      - name: reading_fact_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('fact_meter_readings')
+              field: reading_fact_key
+      - name: date_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: time_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_time')
+              field: time_key

@@ -1,0 +1,24 @@
+version: 2
+
+sources:
+  - name: energy_landing
+    database: SNOWFLAKE_CLASSROOM
+    schema: PUBLIC
+    description: Clean, standardized meter readings loaded by Spark from Iceberg Silver.
+    tables:
+      - name: silver_meter_readings
+        identifier: STG_SILVER_METER_READINGS
+        description: The existing 22-column meter-reading staging table.
+        columns:
+          - name: METER_ID
+            tests: [not_null]
+          - name: READING_TS_UTC
+            description: Event timestamp stored as TIMESTAMP_NTZ and interpreted as UTC.
+            tests: [not_null]
+          - name: INTERVAL_MINUTES
+            tests:
+              - not_null
+              - accepted_values:
+                  values: [15]
+          - name: ANOMALY_LABEL
+            description: Ground-truth dataset label; not a detected Flink alert.

@@ -1,0 +1,8 @@
+.venv
+venv
+target
+dbt_packages
+logs
+.env
+profiles.yml
+**/__pycache__

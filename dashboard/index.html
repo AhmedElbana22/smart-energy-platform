@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101923">
+  <title>Smart Grid Alerts</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #101923;
+      color: #e7eef5;
+      font-synthesis: none;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; background: #101923; }
+    header {
+      display: flex; justify-content: space-between; align-items: center; gap: 20px;
+      padding: 22px clamp(18px, 5vw, 64px); border-bottom: 1px solid #293744;
+      background: #15212d;
+    }
+    h1 { margin: 0; font-size: clamp(1.3rem, 3vw, 1.8rem); letter-spacing: -.03em; }
+    .subtitle { margin-top: 5px; color: #9babb9; font-size: .9rem; }
+    button, select {
+      border: 1px solid #465969; border-radius: 8px; padding: 10px 13px;
+      color: #e7eef5; background: #202f3d; font: inherit;
+    }
+    button { cursor: pointer; white-space: nowrap; }
+    button:hover { background: #2b3d4c; }
+    main { max-width: 1440px; margin: auto; padding: 25px clamp(18px, 5vw, 64px) 48px; }
+    .connection {
+      display: flex; align-items: center; gap: 9px; color: #b7c5d0; font-size: .9rem;
+      margin: 2px 0 22px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #73818d; }
+    .dot.online { background: #4bd39b; box-shadow: 0 0 12px #4bd39b66; }
+    .dot.offline { background: #ff6e68; }
+    .error { display: none; margin: -8px 0 18px; color: #ffb7a9; white-space: pre-wrap; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 12px; }
+    .card, .panel {
+      border: 1px solid #293744; border-radius: 12px; background: #17232e;
+    }
+    .card { padding: 15px 16px; }
+    .card-label { color: #a7b5c2; font-size: .82rem; min-height: 2.1em; }
+    .card-value { margin-top: 6px; font-size: 1.7rem; font-variant-numeric: tabular-nums; }
+    .section-title { margin: 27px 0 13px; font-size: 1rem; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(250px, .8fr); gap: 14px; }
+    .panel { padding: 17px; min-width: 0; }
+    .toolbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
+    .toolbar h2 { margin: 0; font-size: 1rem; }
+    .toolbar select { padding: 8px 10px; }
+    .feed { display: grid; gap: 9px; max-height: 620px; overflow: auto; }
+    .alert {
+      display: grid; grid-template-columns: auto 1fr; gap: 12px; padding: 12px;
+      border: 1px solid #2b3a47; border-radius: 9px; background: #1b2935;
+    }
+    .badge { height: fit-content; padding: 5px 8px; border-radius: 20px; font-size: .7rem; font-weight: 750; }
+    .high { color: #ffd1ce; background: #762f35; }
+    .medium { color: #ffe2aa; background: #65491d; }
+    .low { color: #bce7d4; background: #1e5542; }
+    .unknown { color: #ccd6de; background: #3a4855; }
+    .alert-title { font-size: .9rem; font-weight: 650; overflow-wrap: anywhere; }
+    .alert-meta, .alert-detail { margin-top: 5px; color: #a7b5c2; font-size: .8rem; overflow-wrap: anywhere; }
+    .alert-detail { color: #d3dce4; line-height: 1.45; }
+    .bars { display: grid; gap: 16px; }
+    .bar-label { display: flex; justify-content: space-between; gap: 10px; font-size: .82rem; }
+    .bar-track { height: 8px; margin-top: 7px; background: #293744; border-radius: 8px; overflow: hidden; }
+    .bar-fill { height: 100%; background: #f0b94f; border-radius: inherit; transition: width .3s ease; }
+    .empty { color: #9babb9; padding: 20px 4px; text-align: center; }
+    footer { margin-top: 19px; color: #8495a3; font-size: .78rem; }
+    @media (max-width: 800px) {
+      .layout { grid-template-columns: 1fr; }
+      header { align-items: flex-start; }
+    }
+    @media (max-width: 500px) {
+      header { flex-direction: column; }
+      .toolbar { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Smart Grid Alerts</h1>
+      <div class="subtitle">Live view of Flink detector output from Kafka</div>
+    </div>
+    <button id="notifications" type="button">Enable browser notifications</button>
+  </header>
+  <main>
+    <div class="connection"><span id="connection-dot" class="dot"></span><span id="connection-text">Connecting to Kafka…</span></div>
+    <div id="error" class="error" role="status"></div>
+    <section id="summary" class="cards" aria-label="Alert counts"></section>
+    <div class="layout">
+      <section>
+        <h2 class="section-title">Recent alerts</h2>
+        <div class="panel">
+          <div class="toolbar">
+            <h2>Alert feed</h2>
+            <select id="type-filter" aria-label="Filter by alert type">
+              <option value="">All alert types</option>
+              <option value="HIGH_TRANSFORMER_LOADING">Transformer loading</option>
+              <option value="PERSISTENT_VOLTAGE_DROP">Persistent voltage drop</option>
+              <option value="SUSPICIOUS_CONSUMPTION_SPIKE">Suspicious consumption</option>
+              <option value="POOR_DATA_QUALITY">Poor data quality</option>
+            </select>
+          </div>
+          <div id="feed" class="feed" aria-live="polite"></div>
+        </div>
+      </section>
+      <section>
+        <h2 class="section-title">Alerts by type</h2>
+        <div id="type-counts" class="panel bars"></div>
+        <h2 class="section-title">Severity</h2>
+        <div id="severity-counts" class="panel bars"></div>
+      </section>
+    </div>
+    <footer id="footer"></footer>
+  </main>
+  <script>
+    const typeLabels = {
+      HIGH_TRANSFORMER_LOADING: "Transformer loading",
+      PERSISTENT_VOLTAGE_DROP: "Persistent voltage drop",
+      SUSPICIOUS_CONSUMPTION_SPIKE: "Suspicious consumption",
+      POOR_DATA_QUALITY: "Poor data quality",
+      UNKNOWN: "Unknown"
+    };
+    const knownIds = new Set();
+    const knownIdOrder = [];
+    let firstResponse = true;
+    let latestData;
+
+    function rememberId(id) {
+      if (!id || knownIds.has(id)) return;
+      knownIds.add(id);
+      knownIdOrder.push(id);
+      if (knownIdOrder.length > 5000) {
+        knownIds.delete(knownIdOrder.shift());
+      }
+    }
+
+    function element(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    function renderCounters(target, counts, labels) {
+      const root = document.getElementById(target);
+      root.replaceChildren();
+      const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+      const max = Math.max(1, ...entries.map((entry) => entry[1]));
+      if (!entries.length) {
+        root.append(element("div", "empty", "No alerts consumed yet."));
+        return;
+      }
+      for (const [key, count] of entries) {
+        const row = element("div");
+        const label = element("div", "bar-label");
+        label.append(element("span", "", labels[key] || key), element("strong", "", count.toLocaleString()));
+        const track = element("div", "bar-track");
+        const fill = element("div", "bar-fill");
+        fill.style.width = `${Math.max(2, (count / max) * 100)}%`;
+        track.append(fill);
+        row.append(label, track);
+        root.append(row);
+      }
+    }
+
+    function renderAlerts(alerts) {
+      const root = document.getElementById("feed");
+      const filter = document.getElementById("type-filter").value;
+      const visible = alerts.filter((alert) => !filter || alert.alert_type === filter);
+      root.replaceChildren();
+      if (!visible.length) {
+        root.append(element("div", "empty", "No matching alerts in the feed."));
+        return;
+      }
+      for (const alert of visible) {
+        const card = element("article", "alert");
+        const severity = String(alert.severity || "UNKNOWN").toLowerCase();
+        card.append(element("span", `badge ${["high", "medium", "low"].includes(severity) ? severity : "unknown"}`, alert.severity || "UNKNOWN"));
+        const content = element("div");
+        content.append(element("div", "alert-title", typeLabels[alert.alert_type] || alert.alert_type || "Unknown alert"));
+        const meta = [alert.reading_ts_utc, alert.meter_id, alert.transformer_id].filter(Boolean).join(" · ");
+        content.append(element("div", "alert-meta", meta || `Alert ${alert._dashboard_id}`));
+        if (alert.message) content.append(element("div", "alert-detail", alert.message));
+        if (alert.details) content.append(element("div", "alert-meta", alert.details));
+        card.append(content);
+        root.append(card);
+      }
+    }
+
+    function render(data) {
+      latestData = data;
+      const dot = document.getElementById("connection-dot");
+      dot.className = `dot ${data.connected ? "online" : "offline"}`;
+      document.getElementById("connection-text").textContent = data.connected
+        ? `Connected to ${data.topic} · group ${data.group_id}`
+        : `Waiting for ${data.topic}`;
+      const error = document.getElementById("error");
+      error.textContent = data.last_error || "";
+      error.style.display = data.last_error ? "block" : "none";
+
+      const summary = document.getElementById("summary");
+      const total = data.alerts_counted_since_start || 0;
+      const cards = [
+        ["Alerts consumed since start", total.toLocaleString()],
+        ["Invalid records", (data.invalid_messages || 0).toLocaleString()],
+        ["Latest alert received", data.last_alert_at ? new Date(data.last_alert_at).toLocaleTimeString() : "—"]
+      ];
+      summary.replaceChildren();
+      for (const [label, value] of cards) {
+        const card = element("div", "card");
+        card.append(element("div", "card-label", label), element("div", "card-value", value));
+        summary.append(card);
+      }
+      renderCounters("type-counts", data.counts_by_type || {}, typeLabels);
+      renderCounters("severity-counts", data.counts_by_severity || {}, {});
+
+      if (!firstResponse && Notification.permission === "granted") {
+        for (const alert of [...data.alerts].reverse()) {
+          const id = alert._dashboard_id;
+          if (id && !knownIds.has(id) && !alert._dashboard_historical) {
+            new Notification(alert.alert_type || "Grid alert", {
+              body: [alert.meter_id, alert.message].filter(Boolean).join(" · "),
+              tag: id
+            });
+          }
+        }
+      }
+      for (const alert of data.alerts) {
+        rememberId(alert._dashboard_id);
+      }
+      firstResponse = false;
+      renderAlerts(data.alerts);
+      document.getElementById("footer").textContent =
+        `Showing up to ${data.alerts.length} recent alerts. Counts cover alerts consumed by this dashboard process. Refreshes every 2 seconds.`;
+    }
+
+    async function refresh() {
+      try {
+        const response = await fetch("/api/alerts?limit=500", { cache: "no-store" });
+        const data = await response.json();
+        render(data);
+      } catch (error) {
+        document.getElementById("connection-text").textContent = `Dashboard API error: ${error.message}`;
+        document.getElementById("connection-dot").className = "dot offline";
+      }
+    }
+
+    document.getElementById("notifications").addEventListener("click", async () => {
+      if (!("Notification" in window)) {
+        document.getElementById("connection-text").textContent = "Browser notifications are not supported here.";
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      document.getElementById("notifications").textContent =
+        permission === "granted" ? "Browser notifications enabled" : "Notifications not enabled";
+    });
+    document.getElementById("type-filter").addEventListener("change", () => {
+      if (latestData) renderAlerts(latestData.alerts);
+    });
+    refresh();
+    window.setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

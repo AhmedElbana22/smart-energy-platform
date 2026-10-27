@@ -1,0 +1,29 @@
+﻿services:
+  flink-sql-runner:
+    image: smart-energy-flink:1.20.2
+    build:
+      context: ./flink/sql
+      dockerfile: Dockerfile
+    profiles: ["streaming"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      flink-jobmanager:
+        condition: service_started
+      flink-taskmanager:
+        condition: service_started
+    volumes:
+      - ./flink/sql:/opt/flink/sql:ro
+    entrypoint: ["/bin/bash", "-lc"]
+    command:
+      - "until (echo > /dev/tcp/flink-jobmanager/8081) >/dev/null 2>&1; do echo 'Waiting for Flink JobManager REST API...'; sleep 2; done; sleep 5; exec /opt/flink/bin/sql-client.sh -Dexecution.target=remote -Drest.address=flink-jobmanager -Drest.port=8081 -f /opt/flink/sql/alerts.sql"
+    restart: "no"
+    mem_limit: 1024m
+    cpus: 0.5
+
+  generator:
+    environment:
+      INPUT_PATH: /data/raw/ami_readings_final
+      MAX_BATCHES: ${MAX_BATCHES:-2}
+      START_TIMESTAMP: ${START_TIMESTAMP:-}
+      PUBLISH_INTERVAL_SECONDS: ${PUBLISH_INTERVAL_SECONDS:-2}

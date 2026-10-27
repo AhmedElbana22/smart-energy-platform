@@ -1,0 +1,35 @@
+name: smart_energy_dw
+version: '1.0.0'
+config-version: 2
+profile: smart_energy_dw
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Because the landing table currently has no ingestion timestamp or batch ID,
+  # incremental models use an event-time lookback to catch recent late arrivals.
+  incremental_lookback_days: 3
+
+models:
+  smart_energy_dw:
+    staging:
+      +schema: STAGING
+      +materialized: view
+    intermediate:
+      +schema: INTERMEDIATE
+      +materialized: view
+    marts:
+      dimensions:
+        +schema: DW
+        +materialized: table
+      facts:
+        +schema: DW
+        +materialized: incremental
+        +incremental_strategy: merge
+        +on_schema_change: sync_all_columns

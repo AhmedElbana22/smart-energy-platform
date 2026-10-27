@@ -166,41 +166,117 @@ The Flink Docker image includes the Kafka SQL connector. The SQL
 definition specifies the Kafka source, Kafka sink, and alert-generation
 rules.
 
-**Low-voltage detection**
+The SQL currently implements these detectors:
 
-A low-voltage alert is generated when measured voltage falls below 95%
-of its baseline:
+- **Transformer loading:** 15-minute tumbling windows; use summed
+  apparent power divided by a consistent transformer rating when
+  available, otherwise use the maximum source `loading_ratio`. Emit
+  above 100% loading, with `HIGH` severity at 110% or above.
+- **Persistent voltage drop:** at least three readings for a meter that
+  are each at least 15 V below baseline in a 45-minute window, hopping
+  every 15 minutes. A maximum drop of 18 V or more is `HIGH` severity.
+- **Suspicious consumption:** current active power above the mean of
+  prior readings plus three population standard deviations; require at
+  least 12 valid prior readings.
+- **Data quality:** emit for missing required fields, invalid physical
+  ranges, or an unrecognized quality status.
 
-``` text
-voltage_v < voltage_v_baseline * 0.95
-```
+The development source uses a zero-delay event-time watermark. Windowed
+alerts are emitted only after later event timestamps advance the
+watermark past the window end. The replay producer sends timestamp
+groups in order; an idle or unfinished replay can therefore leave recent
+windows open.
 
-**High-transformer-loading detection**
+Start the streaming services (this starts Kafka, Flink, and the dashboard,
+but does not submit the Flink SQL job):
 
-A high-loading alert is generated when the transformer loading ratio
-reaches or exceeds `0.80`:
-
-``` text
-loading_ratio >= 0.80
-```
-
-Alerts include the meter identifier, reading timestamp, transformer
-identifier, alert type, relevant measurements, and a descriptive
-message.
-
-Start the streaming services:
-
-``` bash
-docker compose --profile streaming up --build -d
+``` powershell
+docker compose --profile streaming `
+  -f docker-compose.yml `
+  -f docker-compose.streaming.override.yml `
+  up --build -d kafka flink-jobmanager flink-taskmanager grid-alert-dashboard
 ```
 
 Flink web interface: <http://localhost:8085>
 
-Starting the containers launches the Flink runtime. The SQL job must
-also be submitted to the runtime for event processing to begin.
+Starting the containers launches the Flink runtime. Submit the SQL job
+once, after checking the Flink Jobs page/API for an existing active job:
 
-The Flink-to-Kafka alert flow and downstream `grid-alerts` consumer have
-been tested in the local Docker environment.
+``` powershell
+Invoke-RestMethod http://localhost:8085/jobs/overview
+docker compose --profile streaming `
+  -f docker-compose.yml `
+  -f docker-compose.streaming.override.yml `
+  run --rm flink-sql-runner
+Invoke-RestMethod http://localhost:8085/jobs/overview
+```
+
+The source starts at `latest-offset`. Start Flink before producing a new
+batch; this intentionally skips readings already present when the SQL job
+starts and avoids replaying retained history into the alert sink. Each new
+reading batch advances event time; windowed alerts can require later
+timestamps before they are emitted.
+
+After confirming the Flink Jobs page/API shows the SQL job as `RUNNING`,
+produce the next dataset batch from a separate PowerShell window:
+
+``` powershell
+docker compose --profile producer `
+  -f docker-compose.yml `
+  -f docker-compose.streaming.override.yml `
+  run --rm -e MAX_BATCHES=1 -e PUBLISH_INTERVAL_SECONDS=0 generator
+```
+
+The producer reads `generator/LastTime.txt`, publishes the next 15-minute
+group, and advances the checkpoint only after successful publication. The
+dashboard refreshes every two seconds; use its alert-type filter and the
+optional browser-notification button to inspect newly emitted alerts.
+
+The Flink-to-Kafka path has been verified by consuming alerts from
+`grid-alerts` with Kafka's console consumer. This repository does not
+include a Grafana dashboard for alert records; Grafana is currently
+provisioned with Prometheus as its only data source. A separate
+`grid-alert-dashboard` application consumes `grid-alerts` with its own
+Kafka consumer group and provides a browser feed, counts by alert type
+and severity, and optional browser notifications.
+
+Start the dashboard without starting or resubmitting the Flink job:
+
+``` powershell
+docker compose --profile streaming `
+  -f docker-compose.yml `
+  -f docker-compose.streaming.override.yml `
+  up --build -d grid-alert-dashboard
+```
+
+Open <http://localhost:8501>. The dashboard reads retained alert history
+using its own group, `smart-energy-grid-alert-dashboard-v2`; it does not
+change the Flink group's offsets or publish to Kafka. Its consumer does not
+commit offsets so a service restart reconstructs the feed from retained
+alerts. Counts are for alerts consumed since the dashboard process started.
+Browser notifications are opt-in and are suppressed for records that were
+already in the topic when the dashboard consumer started.
+
+To check the dashboard's consumer and feed:
+
+``` powershell
+Invoke-RestMethod http://localhost:8501/healthz
+Invoke-RestMethod "http://localhost:8501/api/alerts?limit=10"
+```
+
+To inspect emitted alerts manually instead:
+
+``` bash
+docker compose exec kafka kafka-console-consumer \
+  --bootstrap-server kafka:29092 \
+  --topic grid-alerts \
+  --from-beginning
+```
+
+`EMIT_DQ_TEST_RECORD` is not a supported producer option. To exercise
+the data-quality branch manually, publish a deliberately invalid record
+to `meter-readings` with Kafka's console producer; it will create a
+`POOR_DATA_QUALITY` alert.
 
 ### 3. Kafka-to-HDFS Integration --- Kafka Connect
 
@@ -275,10 +351,11 @@ docker compose --profile batch up --build -d
 
 Spark master interface: <http://localhost:8082>
 
-This layer provides the foundation for transforming stored data into
-analytical datasets. The complete Bronze-to-Silver-to-Gold
-transformation workflow and reliable Iceberg-to-Snowflake loading are
-separate implementation responsibilities.
+The batch flow is Kafka Connect JSON in HDFS, JSON-to-Parquet promotion,
+Bronze-to-Silver, Silver-to-Gold, and an incremental Snowflake staging
+load. The HDFS control logs track completed source files; the Snowflake
+load uses stable-key MERGEs so reruns do not append duplicate history.
+See [connect/README.md](./connect/README.md) for the repeatable commands.
 
 ### 6. Cloud Data Warehouse --- Snowflake
 
@@ -287,15 +364,12 @@ downstream reporting. Unlike the local processing services, Snowflake is
 an external cloud service; connection settings must be supplied through
 local environment configuration.
 
-The repository includes validation scripts for testing
-Spark-to-Snowflake connectivity and write operations. These tests cover
-the relevant connection and write paths but do not, by themselves,
-establish that the complete HDFS-to-Iceberg-to-Snowflake workflow runs
-automatically.
-
-Configure the required Snowflake settings locally before executing the
-relevant tests. Ensure that the configured user has the required access
-to the account, warehouse, database, schema, and target objects.
+The batch loader uses the existing local `.env` settings and creates or
+updates only raw landing tables for detailed Silver readings, the three
+Gold aggregates, and per-file pipeline quality metrics. It does not run
+dbt or create dimensional warehouse tables. See
+[connect/README.md](./connect/README.md) for the Spark 3.5 connector
+command and staging-table behavior.
 
 ### 7. Analytical Transformations --- dbt
 
@@ -306,15 +380,39 @@ The dbt project organizes warehouse data into reusable analytical
 models, including fact tables, dimensions, and data-quality tests as the
 source contract is finalized.
 
-Validate the configured dbt connection:
+The active dbt project is `smart_energy_dbt_workspace`. Its Compose service
+builds dbt Core and the Snowflake adapter from that workspace's
+`requirements.txt`. Compose maps the existing Snowflake values from the
+repository `.env` into dbt's expected `DBT_SNOWFLAKE_*` variables; the
+mounted example profile contains no credentials.
 
-``` bash
+Validate the connection and project before building:
+
+``` powershell
 docker compose --profile analytics run --build --rm dbt debug
+docker compose --profile analytics run --rm dbt parse
+docker compose --profile analytics run --rm dbt ls --resource-type model
+docker compose --profile analytics run --rm dbt show `
+  --inline "select count(*) as ROW_COUNT from SNOWFLAKE_CLASSROOM.PUBLIC.STG_SILVER_METER_READINGS" `
+  --limit 1
 ```
 
-The dbt source definitions and models must match the tables and schemas
-actually available in Snowflake. Credentials should be provided through
-environment variables rather than hard-coded into configuration files.
+Run the full models and tests after the read-only checks pass:
+
+``` powershell
+docker compose --profile analytics run --rm dbt build
+```
+
+The initial build creates views and tables under `SNOWFLAKE_CLASSROOM.STAGING`,
+`INTERMEDIATE`, and `DW`; incremental fact models use merge semantics.
+The source `PUBLIC.STG_SILVER_METER_READINGS` is read-only to dbt.
+To preview the resulting fact data:
+
+``` powershell
+docker compose --profile analytics run --rm dbt show `
+  --inline "select * from SNOWFLAKE_CLASSROOM.DW.FACT_METER_READINGS order by READING_TS_UTC desc" `
+  --limit 10
+```
 
 ## Workflow Orchestration
 
@@ -449,7 +547,7 @@ source data.
 ``` text
 smart-energy-platform/
 ├── connect/       # Kafka Connect image and HDFS sink configuration
-├── dbt/           # dbt project and Snowflake profile configuration
+├── smart_energy_dbt_workspace/ # dbt models, tests, and Snowflake profile template
 ├── flink/         # Flink Docker image and streaming SQL
 ├── spark/         # Spark configuration and validation/job scripts
 ├── generator/     # Development Kafka producer
@@ -468,8 +566,9 @@ Local development data, generated artifacts, logs, credentials, and
 container state should remain outside version control unless a specific
 non-sensitive source file is intentionally part of the project.
 
-The tracked `dbt/profiles.yml` should reference environment variables
-for sensitive settings.
+The dbt profile template references environment variables rather than
+embedding credentials. Keep local container state and secret-bearing
+configuration files out of version control.
 
 Docker volumes preserve service state across container restarts. To stop
 the Compose environment while retaining named volumes:

@@ -1,0 +1,1 @@
+No credentials are included in this workspace. Configure the `smart_energy_dw` dbt profile using your existing Snowflake account and authentication details. Keep `.env`, profiles.yml, private keys, and passwords out of version control.

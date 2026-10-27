@@ -34,8 +34,8 @@ services:
     cpus: 1.5
     restart: unless-stopped
 
-  # Kafka Connect worker is included, but the HDFS sink plugin is intentionally
-  # not bundled until the team confirms the connector version/license and Hadoop compatibility.
+  # The HDFS 3 sink plugin is pinned in connect/Dockerfile. Register the
+  # connector explicitly with connect/hdfs3-sink.json after the worker starts.
   kafka-connect:
     build:
       context: ./connect
@@ -69,12 +69,41 @@ services:
     cpus: 1.0
     restart: unless-stopped
 
+  grid-alert-dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    image: smart-energy-grid-alert-dashboard:0.1
+    profiles: ["streaming"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8501:8501"
+    environment:
+      DASHBOARD_HOST: "0.0.0.0"
+      DASHBOARD_PORT: 8501
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      KAFKA_TOPIC: "grid-alerts"
+      KAFKA_GROUP_ID: "smart-energy-grid-alert-dashboard-v2"
+      ALERT_BUFFER_SIZE: 500
+      ALERT_DEDUPLICATION_WINDOW: 5000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 256m
+    cpus: 0.5
+    restart: unless-stopped
+
   # Branch A: Flink runs continuously; a Kafka consumer job must be submitted separately.
   flink-jobmanager:
     image: smart-energy-flink:1.20.2
     build:
       context: ./flink
-      dockerfile: Dockerfile
+      dockerfile: sql/Dockerfile
     profiles: ["streaming"]
     command: jobmanager
     hostname: flink-jobmanager
@@ -83,9 +112,9 @@ services:
     environment:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
-        jobmanager.memory.process.size: 1024m
+        jobmanager.memory.process.size: 1536m
         parallelism.default: 1
-    mem_limit: 1400m
+    mem_limit: 1800m
     volumes:
       - ./flink/sql:/opt/flink/sql:ro
     cpus: 1.0
@@ -95,7 +124,7 @@ services:
     image: smart-energy-flink:1.20.2
     build:
       context: ./flink
-      dockerfile: Dockerfile
+      dockerfile: sql/Dockerfile
     profiles: ["streaming"]
     command: taskmanager
     hostname: flink-taskmanager
@@ -104,10 +133,10 @@ services:
     environment:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
-        taskmanager.memory.process.size: 1280m
+        taskmanager.memory.process.size: 3g
         taskmanager.numberOfTaskSlots: 2
-    mem_limit: 1600m
-    cpus: 1.0
+    mem_limit: 3500m
+    cpus: 2.0
     restart: unless-stopped
 
   # Branch B: HDFS is enabled by either the batch or connect profile.
@@ -278,25 +307,22 @@ services:
   # One-off dbt container. Snowflake itself is a cloud service, not a local container.
   dbt:
     build:
-      context: ./dbt
+      context: ./smart_energy_dbt_workspace
       dockerfile: Dockerfile
-    image: smart-energy-dbt:1.9.2
+    image: smart-energy-dbt:1.12
     profiles: ["analytics"]
     working_dir: /workspace
     entrypoint: ["dbt"]
     command: ["--help"]
     environment:
-      SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT:-}
-      SNOWFLAKE_USER: ${SNOWFLAKE_USER:-}
-      SNOWFLAKE_PASSWORD: ${SNOWFLAKE_PASSWORD:-}
-      SNOWFLAKE_ROLE: ${SNOWFLAKE_ROLE:-}
-      SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_WAREHOUSE:-}
-      SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE:-}
-      SNOWFLAKE_SCHEMA: ${SNOWFLAKE_SCHEMA:-}
-      SNOWFLAKE_RAW_SCHEMA: ${SNOWFLAKE_RAW_SCHEMA:-RAW}
+      DBT_SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT:-}
+      DBT_SNOWFLAKE_USER: ${SNOWFLAKE_USER:-}
+      DBT_SNOWFLAKE_PASSWORD: ${SNOWFLAKE_PASSWORD:-}
+      DBT_SNOWFLAKE_ROLE: ${SNOWFLAKE_ROLE:-}
+      DBT_SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_WAREHOUSE:-}
     volumes:
-      - ./dbt:/workspace
-      - ./dbt/profiles.yml:/root/.dbt/profiles.yml:ro
+      - ./smart_energy_dbt_workspace:/workspace
+      - ./smart_energy_dbt_workspace/profiles.yml.example:/root/.dbt/profiles.yml:ro
     mem_limit: 900m
     cpus: 1.0
 
@@ -347,6 +373,7 @@ services:
     cpus: 0.5
     restart: unless-stopped
 
+
   # Optional one-off producer container. It sends the real CSV fields as available;
   # do not infer meter_id from id until the source schema is confirmed.
   generator:
@@ -361,10 +388,12 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_TOPIC: meter-readings
-      INPUT_CSV: /data/raw/real_readings.csv
+      INPUT_PATH: /data/raw/ami_readings_final
       PUBLISH_INTERVAL_SECONDS: ${PUBLISH_INTERVAL_SECONDS:-2}
+      CHECKPOINT_FILE: /state/LastTime.txt
     volumes:
       - ./data/raw:/data/raw:ro
+      - ./generator:/state
     mem_limit: 500m
     cpus: 0.5
 

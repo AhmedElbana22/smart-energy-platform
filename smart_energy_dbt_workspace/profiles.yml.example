@@ -1,0 +1,16 @@
+# Copy this to ~/.dbt/profiles.yml and use the account/auth values already
+# configured for your Snowflake environment. Do not commit secrets.
+smart_energy_dw:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('DBT_SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('DBT_SNOWFLAKE_USER') }}"
+      password: "{{ env_var('DBT_SNOWFLAKE_PASSWORD') }}"
+      role: "{{ env_var('DBT_SNOWFLAKE_ROLE') }}"
+      warehouse: "{{ env_var('DBT_SNOWFLAKE_WAREHOUSE') }}"
+      database: SNOWFLAKE_CLASSROOM
+      schema: PUBLIC
+      threads: 4
+      client_session_keep_alive: false

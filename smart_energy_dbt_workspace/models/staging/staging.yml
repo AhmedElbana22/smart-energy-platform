@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: stg_silver_meter_readings
+    description: Staging view over the Spark-loaded Silver readings table.
+    columns:
+      - name: meter_id
+        tests: [not_null]
+      - name: reading_ts_utc
+        tests: [not_null]
+      - name: interval_minutes
+        tests:
+          - not_null
+          - accepted_values:
+              values: [15]
+      - name: anomaly_label
+        description: Ground-truth dataset anomaly label, not a streaming detector alert.

@@ -10,12 +10,13 @@
     "logs.dir": "/smart-energy/bronze/_connect-logs",
 
     "format.class": "io.confluent.connect.hdfs3.json.JsonFormat",
-    "flush.size": "3",
-    "rotate.interval.ms": "10000",
+    "flush.size": "20000",
+    "rotate.interval.ms": "300000",
 
     "key.converter": "org.apache.kafka.connect.storage.StringConverter",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter.schemas.enable": "false",
+    "consumer.auto.offset.reset": "earliest",
 
     "hive.integration": "false",
     "schema.compatibility": "NONE",
